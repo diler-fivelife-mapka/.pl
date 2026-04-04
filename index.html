@@ -13,11 +13,11 @@
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
-    const width = 1080;
-    const height = 1620;
+    const width = 4000;
+    const height = 5433;
     const bounds = [[0, 0], [height, width]];
     const map = L.map('map', { crs: L.CRS.Simple, minZoom: -2 });
-    L.imageOverlay('mapa_gta_v.webp', bounds).addTo(map);
+    L.imageOverlay('mapa.jpg', bounds).addTo(map);
     map.fitBounds(bounds);
   </script>
 </body>
