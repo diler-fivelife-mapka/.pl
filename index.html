@@ -1,1 +1,582 @@
-<!DOCTYPE html> <html lang="pl"> <head> <meta charset="UTF-8" /> <title>Mapa</title> <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" /> <style> body { margin: 0; } #map { width: 100vw; height: 100vh; background: black; } </style> </head> popraw jakość obrazu by nie był on aż tak wypikselowany <body> <div id="map"></div> <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script> <script> const width = 4000; const height = 5433; const bounds = [[0, 0], [height, width]]; const map = L.map('map', { crs: L.CRS.Simple, minZoom: -2 }); L.imageOverlay('mapa.jpg', bounds).addTo(map); map.fitBounds(bounds); </script> </body> </html>
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Gdzie Dil?</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="css/style.css">
+<style>
+#imgModal {
+  display: none;
+  position: fixed;
+  z-index: 10000;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.8);
+  justify-content: center;
+  align-items: center;
+}
+#imgModal img {
+  max-width: 90%;
+  max-height: 90%;
+  border-radius: 10px;
+}
+#closeModal {
+  position: absolute;
+  top: 20px; right: 30px;
+  color: #fff;
+  font-size: 40px;
+  cursor: pointer;
+  user-select: none;
+}
+</style>
+</head>
+<body>
+
+<div id="ad-banner">znalazłeś dila? oznacz gdzie jest </div>
+
+<div id="search-box">
+  <input type="text" id="searchInput" placeholder="Szukaj miejsca...">
+  <ul id="autocomplete-list"></ul>
+</div>
+
+<div id="znajdzki-counter">Znajdźki: 0</div>
+
+<div id="legenda-box">
+  <button id="toggleLegenda">Legenda</button>
+  <ul id="legenda-list" style="display: none;"></ul>
+</div>
+
+<div id="map"></div>
+
+<div id="imgModal">
+  <span id="closeModal">&times;</span>
+  <img id="modalImg" src="" alt="Powiększone zdjęcie" />
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/data.js"></script>
+<script src="js/script.js"></script>
+
+<script>
+// --- Sprawdzenie czy użytkownik jest zalogowany ---
+async function checkLogin() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) {
+      window.location.href = '/login.html';
+      return;
+    }
+    const user = await res.json();
+    console.log('Zalogowany użytkownik:', user.username);
+  } catch (err) {
+    console.error('Błąd podczas sprawdzania logowania:', err);
+    window.location.href = '/login.html';
+  }
+}
+
+// --- Wywołanie przy ładowaniu ---
+checkLogin();
+</script>
+<script src="js/map-report.js"></script>
+  <div id="footer">by dzwiekowsky</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- Panel aktualnego dilera -->
+<div id="dealer-panel" style="
+  position: fixed;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-family: Arial, sans-serif;
+  z-index: 9999;
+  min-width: 220px;
+  text-align: left;
+">
+  <div id="external-dealer-box" style="margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.2);">
+    <div style="font-weight:bold; margin-bottom:6px;">Aktualny Diler (sync)</div>
+    <div id="external-dealer-card" style="background:rgba(15,23,42,0.85); border-left:4px solid #3498db; border-radius:6px; padding:8px;">
+      <div id="external-dealer-title" style="font-size:13px; font-weight:700; margin-bottom:4px;">Aktualizacja dealera</div>
+      <div style="font-size:12px; line-height:1.4;">
+        <div><strong>Lokalizacja:</strong> <span id="external-dealer-location">Ładowanie...</span></div>
+        <div><strong>Status:</strong> <span id="external-dealer-status">Ładowanie...</span></div>
+        <div><strong>Cena:</strong> <span id="external-dealer-price">Ładowanie...</span></div>
+        <div><strong>Kto zgłosił:</strong> <span id="external-dealer-reporter">Ładowanie...</span></div>
+        <div><strong>Czas zgłoszenia:</strong> <span id="external-dealer-time">Ładowanie...</span></div>
+      </div>
+      <div id="external-dealer-others" style="margin-top:8px; font-size:12px;"></div>
+    </div>
+  </div>
+  <div style="font-weight:bold; margin-bottom:5px;">Aktualny Diler</div>
+  <div id="dealer-location">Ładowanie...</div>
+  <div id="dealer-user"></div>
+  <div id="dealer-amount"></div>
+  <div id="dealer-time"></div>
+  <button id="dealer-clear-btn" style="
+    margin-top: 5px;
+    padding: 4px 6px;
+    background: red;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  ">Zaznacz jako nieaktywny</button>
+  <div id="dealer-others" style="margin-top:10px;"></div>
+</div>
+
+<script>
+// Usuń markdown (**) z Discorda
+function cleanMarkdown(text) {
+  return text ? text.replace(/\*\*/g, "") : "";
+}
+
+const MAX_DEALER_AGE_MS = 60 * 60 * 1000;
+const EXTERNAL_MAX_AGE_MS = 60 * 60 * 1000;
+const EXTERNAL_NEW_MAX_AGE_MS = 15 * 60 * 1000;
+let currentDealerMarkers = [];
+let currentDealerLocationName = null;
+let dealerTimeout = null;
+const EXTERNAL_ACTIVE_STATUSES = new Set(['new', 'confirmed']);
+let externalColoredMarkerNames = [];
+const dismissedDealerLocationsKey = 'dismissedDealerLocations';
+const EXTERNAL_STATUS_MAP = {
+  new: { label: 'NOWY', color: '#3498db' },
+  confirmed: { label: 'JEST', color: '#2ecc71' },
+  missing: { label: 'BRAK', color: '#e74c3c' },
+  unknown: { label: 'NIEZNANY', color: '#64748b' }
+};
+
+function findMarkerByExternalName(sourceName) {
+  if (!sourceName) return null;
+  if (markerMap[sourceName]) return { marker: markerMap[sourceName], resolvedName: sourceName };
+
+  const normalize = (value) => String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+  const sourceNameNormalized = normalize(sourceName);
+
+  const normalizedMarkerName = Object.keys(markerMap).find((name) => normalize(name) === sourceNameNormalized);
+  if (normalizedMarkerName) {
+    return { marker: markerMap[normalizedMarkerName], resolvedName: normalizedMarkerName };
+  }
+
+  const markersForMatch =
+    (typeof markers !== 'undefined' && Array.isArray(markers))
+      ? markers
+      : (Array.isArray(globalThis.markers) ? globalThis.markers : []);
+  const markerData = markersForMatch.find((m) => normalize(m.name2) === sourceNameNormalized);
+  if (markerData?.name && markerMap[markerData.name]) {
+    return { marker: markerMap[markerData.name], resolvedName: markerData.name };
+  }
+
+  return null;
+}
+
+function resetExternalMarker() {
+  if (!externalColoredMarkerNames.length) return;
+
+  const markersForMatch =
+    (typeof markers !== 'undefined' && Array.isArray(markers))
+      ? markers
+      : (Array.isArray(globalThis.markers) ? globalThis.markers : []);
+
+  externalColoredMarkerNames.forEach((markerName) => {
+    const marker = markerMap[markerName];
+    if (!marker) return;
+
+    const markerData = markersForMatch.find((m) => m.name === markerName);
+    const baseColor = markerData?.category === 'skrot'
+      ? 'green'
+      : markerData?.category === 'npc'
+        ? 'blue'
+        : markerData?.category === 'znajdzka'
+          ? 'red'
+          : 'gray';
+
+    // lokalny dealer (pomarańczowy) ma priorytet
+    if (marker._dealerActive) {
+      marker.setStyle({ color: 'orange', fillColor: 'orange' });
+      marker.bindTooltip('🟠 Diler aktywny', { permanent: true, direction: 'top', offset: [0, -10] }).openTooltip();
+      return;
+    }
+
+    marker.setStyle({ color: baseColor, fillColor: baseColor });
+    marker.unbindTooltip();
+  });
+
+  externalColoredMarkerNames = [];
+}
+
+function renderExternalDealerOthers(dealers) {
+  const othersEl = document.getElementById('external-dealer-others');
+  if (!othersEl) return;
+  othersEl.innerHTML = '';
+
+  if (!dealers.length) return;
+
+  const title = document.createElement('div');
+  title.style.fontWeight = '700';
+  title.style.marginBottom = '4px';
+  title.textContent = 'Inni aktywni (sync):';
+  othersEl.appendChild(title);
+
+  dealers.forEach((dealer) => {
+    const reportedAt = dealer.reportedAt ? new Date(dealer.reportedAt) : null;
+    const timeText =
+      reportedAt && !Number.isNaN(reportedAt.getTime())
+        ? reportedAt.toLocaleString()
+        : 'brak';
+
+    const row = document.createElement('div');
+    row.style.marginBottom = '6px';
+    row.innerHTML = `
+      <div>• <strong>${dealer.name} → ${dealer.localName}</strong></div>
+      <div style="opacity:.9;">Status: ${EXTERNAL_STATUS_MAP[dealer.status]?.label || 'NIEZNANY'}</div>
+      <div style="opacity:.9;">Cena: ${dealer.price}$</div>
+      <div style="opacity:.9;">Kto zgłosił: ${dealer.reporter || 'Nieznany'}</div>
+      <div style="opacity:.9;">Czas: ${timeText}</div>
+    `;
+    othersEl.appendChild(row);
+  });
+}
+
+function renderExternalDealer(externalDealers) {
+  const dealers = Array.isArray(externalDealers) ? externalDealers : [];
+  const cardEl = document.getElementById('external-dealer-card');
+  const locationEl = document.getElementById('external-dealer-location');
+  const statusEl = document.getElementById('external-dealer-status');
+  const priceEl = document.getElementById('external-dealer-price');
+  const reporterEl = document.getElementById('external-dealer-reporter');
+  const timeEl = document.getElementById('external-dealer-time');
+
+  if (!dealers.length) {
+    cardEl.style.borderLeftColor = EXTERNAL_STATUS_MAP.unknown.color;
+    statusEl.textContent = EXTERNAL_STATUS_MAP.unknown.label;
+    locationEl.textContent = 'Brak aktywnego dilera';
+    priceEl.textContent = 'brak';
+    reporterEl.textContent = 'Nieznany';
+    timeEl.textContent = 'brak';
+    renderExternalDealerOthers([]);
+    resetExternalMarker();
+    return;
+  }
+
+  const primary = dealers[0];
+  const statusMeta = EXTERNAL_STATUS_MAP[primary.status] || EXTERNAL_STATUS_MAP.unknown;
+  const reportedAt = primary.reportedAt ? new Date(primary.reportedAt) : null;
+
+  cardEl.style.borderLeftColor = statusMeta.color;
+  locationEl.textContent = `${primary.name} → ${primary.localName}`;
+  statusEl.textContent = statusMeta.label;
+  priceEl.textContent = `${primary.price}$`;
+  reporterEl.textContent = primary.reporter || 'Nieznany';
+  timeEl.textContent = reportedAt && !Number.isNaN(reportedAt.getTime()) ? reportedAt.toLocaleString() : 'brak';
+  renderExternalDealerOthers(dealers.slice(1));
+
+  resetExternalMarker();
+  const nextExternalMarkers = [];
+
+  dealers.forEach((dealer) => {
+    if (!dealer.marker) return;
+    dealer.marker.setStyle({ color: '#22c55e', fillColor: '#22c55e' });
+    dealer.marker.bindTooltip('🟢 Diler aktywny (sync)', { permanent: true, direction: 'top', offset: [0, -10] }).openTooltip();
+    nextExternalMarkers.push(dealer.localName);
+  });
+
+  externalColoredMarkerNames = Array.from(new Set(nextExternalMarkers));
+}
+
+function pickActiveExternalDealers(dealers) {
+  const now = Date.now();
+  return dealers
+    .filter((dealer) => EXTERNAL_ACTIVE_STATUSES.has(String(dealer?.status || '').toLowerCase()))
+    .map((dealer) => ({
+      ...dealer,
+      _ts: new Date(dealer.reportedAt || 0).getTime(),
+      _matched: findMarkerByExternalName(dealer.name2 || dealer.name)
+    }))
+    .filter((dealer) => {
+      if (!Number.isFinite(dealer._ts) || dealer._ts <= 0) return false;
+
+      const ageMs = now - dealer._ts;
+      const status = String(dealer?.status || '').toLowerCase();
+      const maxAge = status === 'new' ? EXTERNAL_NEW_MAX_AGE_MS : EXTERNAL_MAX_AGE_MS;
+
+      return ageMs <= maxAge;
+    })
+    .map((dealer) => ({
+      ...dealer,
+      marker: dealer._matched?.marker || null,
+      localName: dealer._matched?.resolvedName || dealer.name
+    }))
+    .sort((a, b) => b._ts - a._ts)
+    .slice(0, 5);
+}
+
+async function updateExternalDealer() {
+  try {
+    const res = await fetch('/api/sync-external-dealers?snapshot=1');
+    if (!res.ok) throw new Error('Brak danych external');
+    const data = await res.json();
+    const externalDealers = Array.isArray(data?.dealers) ? data.dealers : [];
+    const activeExternalDealers = pickActiveExternalDealers(externalDealers);
+    renderExternalDealer(activeExternalDealers);
+  } catch (err) {
+    console.error('Błąd pobierania external dealer:', err);
+    document.getElementById('external-dealer-card').style.borderLeftColor = EXTERNAL_STATUS_MAP.unknown.color;
+    document.getElementById('external-dealer-status').textContent = EXTERNAL_STATUS_MAP.unknown.label;
+    document.getElementById('external-dealer-location').textContent = 'Brak aktywnego dilera';
+    document.getElementById('external-dealer-price').textContent = 'brak';
+    document.getElementById('external-dealer-reporter').textContent = 'Nieznany';
+    document.getElementById('external-dealer-time').textContent = 'brak';
+    document.getElementById('external-dealer-others').innerHTML = '';
+    resetExternalMarker();
+  }
+}
+
+function getDismissedDealerLocations() {
+  try {
+    const raw = localStorage.getItem(dismissedDealerLocationsKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function setDismissedDealerLocation(locationName) {
+  if (!locationName) return;
+  const dismissed = new Set(getDismissedDealerLocations());
+  dismissed.add(locationName);
+  localStorage.setItem(dismissedDealerLocationsKey, JSON.stringify(Array.from(dismissed).slice(-30)));
+}
+
+function renderOtherDealers(dealers) {
+  const container = document.getElementById('dealer-others');
+  container.innerHTML = '';
+
+  if (!dealers.length) return;
+
+  const title = document.createElement('div');
+  title.style.fontWeight = 'bold';
+  title.style.marginBottom = '6px';
+  title.textContent = 'Pozostali aktywni dilerzy:';
+  container.appendChild(title);
+
+  dealers.forEach((dealer) => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.gap = '8px';
+    row.style.marginBottom = '6px';
+
+    const info = document.createElement('div');
+    info.style.fontSize = '13px';
+    info.textContent = `• ${dealer.locationName}`;
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Nieaktywny';
+    btn.style.padding = '3px 6px';
+    btn.style.background = '#b91c1c';
+    btn.style.color = '#fff';
+    btn.style.border = 'none';
+    btn.style.borderRadius = '4px';
+    btn.style.cursor = 'pointer';
+    btn.onclick = async () => clearDealerByLocation(dealer.locationName);
+
+    row.appendChild(info);
+    row.appendChild(btn);
+    container.appendChild(row);
+  });
+}
+
+async function clearDealerByLocation(locationName) {
+  if (!locationName) return;
+
+  try {
+    const clearRes = await fetch('/api/clear-dealer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locationName })
+    });
+
+    if (!clearRes.ok) {
+      throw new Error('Clear API zwróciło błąd');
+    }
+
+    const clearData = await clearRes.json();
+    if (!clearData.dismissNoticeSent) {
+      alert('Nie udało się potwierdzić dezaktywacji na Discordzie. Sprawdź konfigurację bota/webhooka.');
+      return;
+    }
+  } catch (e) {
+    console.error('Błąd przy czyszczeniu dilera', e);
+    alert('Błąd podczas oznaczania jako nieaktywny. Spróbuj ponownie.');
+    return;
+  }
+
+  setDismissedDealerLocation(locationName);
+  updateDealer();
+}
+
+// Wyświetl aktualnego dilera
+async function updateDealer() {
+  try {
+    const res = await fetch('/api/get-latest-dealer');
+    if (!res.ok) throw new Error('Brak danych');
+    const data = await res.json();
+
+    const now = Date.now();
+    const dismissed = new Set(getDismissedDealerLocations());
+
+    const dealers = Array.isArray(data?.dealers) ? data.dealers : [];
+    const activeDealers = dealers
+      .map((d) => ({
+        locationName: cleanMarkdown(d.locationName),
+        user: cleanMarkdown(d.user),
+        amount: cleanMarkdown(d.amount),
+        time: d.time
+      }))
+      .filter((d) => {
+        if (!d.locationName || dismissed.has(d.locationName)) return false;
+        const dealerTime = Number(d.time);
+        if (!Number.isFinite(dealerTime)) return false;
+        return now - dealerTime <= MAX_DEALER_AGE_MS;
+      })
+      .slice(0, 5);
+
+    if (activeDealers.length === 0) {
+      clearDealerPanel();
+      return;
+    }
+
+    const primaryDealer = activeDealers[0];
+    const timestamp = new Date(primaryDealer.time);
+    currentDealerLocationName = primaryDealer.locationName;
+
+    document.getElementById('dealer-location').textContent = `📍 ${primaryDealer.locationName}`;
+    document.getElementById('dealer-user').textContent = `Znalazł: ${primaryDealer.user}`;
+    document.getElementById('dealer-amount').textContent = `Ilość: ${primaryDealer.amount}`;
+    document.getElementById('dealer-time').textContent = `Czas: ${timestamp.toLocaleString()}`;
+    renderOtherDealers(activeDealers.slice(1));
+
+    const nextMarkers = [];
+    activeDealers.forEach((dealer) => {
+      const marker = markerMap[dealer.locationName];
+      if (!marker) return;
+
+      if (!marker._originalColor) marker._originalColor = marker.options.color;
+      marker.setStyle({ color: 'orange', fillColor: 'orange' });
+      marker.bindTooltip('🟠 Diler aktywny', { permanent: true, direction: 'top', offset: [0, -10] }).openTooltip();
+      nextMarkers.push(marker);
+    });
+
+    currentDealerMarkers.filter((marker) => !nextMarkers.includes(marker)).forEach(resetMarker);
+    currentDealerMarkers = nextMarkers;
+
+    const oldestTimestamp = Math.min(...activeDealers.map((d) => d.time));
+    const remaining = Math.max(0, MAX_DEALER_AGE_MS - (now - oldestTimestamp));
+
+    if (dealerTimeout) clearTimeout(dealerTimeout);
+    dealerTimeout = setTimeout(updateDealer, remaining + 500);
+  } catch (err) {
+    console.error('Błąd pobierania dilera:', err);
+    clearDealerPanel();
+  }
+}
+
+function resetMarker(marker) {
+  if (!marker) return;
+  marker.setStyle({ color: marker._originalColor, fillColor: marker._originalColor });
+  marker.unbindTooltip();
+}
+
+function clearDealerPanel() {
+  document.getElementById('dealer-location').textContent = 'Brak aktywnego dilera';
+  document.getElementById('dealer-user').textContent = '';
+  document.getElementById('dealer-amount').textContent = '';
+  document.getElementById('dealer-time').textContent = '';
+  document.getElementById('dealer-others').innerHTML = '';
+
+  if (currentDealerMarkers.length) {
+    currentDealerMarkers.forEach(resetMarker);
+    currentDealerMarkers = [];
+  }
+
+  if (dealerTimeout) clearTimeout(dealerTimeout);
+  currentDealerLocationName = null;
+}
+
+// Przycisk ręcznego wyłączenia dilera
+document.getElementById('dealer-clear-btn').addEventListener('click', async () => {
+  if (!currentDealerLocationName) return;
+  await clearDealerByLocation(currentDealerLocationName);
+});
+
+// Aktualizacja co 15 sekund
+updateDealer();
+setInterval(updateDealer, 15000);
+updateExternalDealer();
+setInterval(updateExternalDealer, 15000);
+</script>
+
+  
+
+
+
+
+
+
+
+
+  
+</body>
+
+
+
+
+
+
+  
+</html>
+
+<style>
+  /* Stopka w prawym dolnym rogu */
+  #footer {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 5px;
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+    z-index: 9999;
+    pointer-events: none; /* nie przeszkadza w klikaniu mapy */
+  }
+
+  /* Ukrycie domyślnych kontrolek Leaflet w prawym dolnym rogu */
+  .leaflet-bottom.leaflet-right {
+    display: none !important;
+  }
+</style>
+
