@@ -1,24 +1,27 @@
-<!DOCTYPE html>
-<html lang="pl">
-<head>
-  <meta charset="UTF-8" />
-  <title>Mapa</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <style>
-    body { margin: 0; }
-    #map { width: 100vw; height: 100vh; background: black; }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script>
-    const width = 4000;
-    const height = 5433;
-    const bounds = [[0, 0], [height, width]];
-    const map = L.map('map', { crs: L.CRS.Simple, minZoom: -2 });
-    L.imageOverlay('mapa.jpg', bounds).addTo(map);
-    map.fitBounds(bounds);
-  </script>
-</body>
-</html>
+<style>
+  body { margin: 0; }
+  #map { width: 100vw; height: 100vh; background: black; }
+
+  #map img,
+  .leaflet-image-layer {
+    image-rendering: auto;
+    image-rendering: smooth;
+    image-rendering: high-quality;
+  }
+</style>
+
+<script>
+  const width = 4000;
+  const height = 5433;
+  const bounds = [[0, 0], [height, width]];
+
+  const map = L.map('map', { 
+    crs: L.CRS.Simple,
+    minZoom: -2,
+    zoomSnap: 0.1,
+    zoomDelta: 0.1
+  });
+
+  L.imageOverlay('mapa.jpg', bounds).addTo(map);
+  map.fitBounds(bounds);
+</script>
