@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>Mapa</title>
 
-  <!-- wyłączamy domyślny zoom -->
+  <!-- blokada normalnego zoomu -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
   <style>
@@ -18,8 +18,9 @@
     #container {
       width: 100%;
       height: 100%;
-      overflow: hidden;
       cursor: grab;
+      overflow: hidden;
+      position: relative;
     }
 
     img {
@@ -41,22 +42,55 @@
 
 <script>
   const mapa = document.getElementById("mapa");
+  const container = document.getElementById("container");
 
   let scale = 1;
+  let posX = -50;
+  let posY = -50;
+  let isDragging = false;
+  let startX, startY;
 
+  // ZOOM (scroll)
   window.addEventListener("wheel", (e) => {
     e.preventDefault();
 
-    if (e.deltaY < 0) {
-      scale += 0.1;
-    } else {
-      scale -= 0.1;
-    }
-
+    scale += e.deltaY < 0 ? 0.1 : -0.1;
     scale = Math.min(Math.max(0.5, scale), 5);
 
-    mapa.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    update();
   }, { passive: false });
+
+  // DRAG (przesuwanie)
+  container.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    container.style.cursor = "grabbing";
+  });
+
+  window.addEventListener("mouseup", () => {
+    isDragging = false;
+    container.style.cursor = "grab";
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    posX += dx / 10;
+    posY += dy / 10;
+
+    startX = e.clientX;
+    startY = e.clientY;
+
+    update();
+  });
+
+  function update() {
+    mapa.style.transform = `translate(${posX}%, ${posY}%) scale(${scale})`;
+  }
 </script>
 
 </body>
