@@ -31,13 +31,15 @@
       transform-origin: center;
       user-select: none;
       pointer-events: none;
+      max-width: none; /* ważne - brak ograniczeń */
     }
   </style>
 </head>
 <body>
 
 <div id="container">
-  <img src="mapa.png" id="mapa">
+  <!-- TU JEST POPRAWKA -->
+  <img src="mapka.png" id="mapa">
 </div>
 
 <script>
@@ -60,7 +62,7 @@
     update();
   }, { passive: false });
 
-  // DRAG (przesuwanie)
+  // DRAG
   container.addEventListener("mousedown", (e) => {
     isDragging = true;
     startX = e.clientX;
